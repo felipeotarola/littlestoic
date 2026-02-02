@@ -131,6 +131,13 @@ const FIXED_BEATS: FixedBeat[] = [
   { beat: 5, layout_type: "background_soft", image_slot: "slot_3" },
 ];
 
+const DEFAULT_IMAGE_PROMPTS: Record<ImageSlot, string> = {
+  slot_1: "Etablerande scen i världens miljö, mjuk morgonljus och lugn stämning.",
+  slot_2: "Närbild av huvudpersonen eller en viktig detalj, vänlig och lugn.",
+  slot_3: "Mjukt bakgrundsljus och atmosfär, drömlikt och varmt.",
+  slot_4: "Liten detalj eller föremål som antyder riktning eller lärdom.",
+};
+
 export async function POST(request: Request) {
   if (!process.env.OPENAI_API_KEY) {
     return new Response("Missing OPENAI_API_KEY.", { status: 500 });
@@ -206,7 +213,7 @@ export async function POST(request: Request) {
       { role: "user", content: imagePromptUser },
     ],
     temperature: 0.6,
-    max_output_tokens: 900,
+    max_output_tokens: 1500,
   });
 
   const imagePromptText =
@@ -218,13 +225,15 @@ export async function POST(request: Request) {
       .join("") ??
     "";
 
-  let imagePlan: { images: Partial<Record<ImageSlot, { prompt: string }>> };
+  let imagePlan: { images: Partial<Record<ImageSlot, { prompt: string }>> } = {
+    images: {},
+  };
   try {
     imagePlan = JSON.parse(imagePromptText) as {
       images: Partial<Record<ImageSlot, { prompt: string }>>;
     };
   } catch {
-    return new Response("Failed to parse image prompts.", { status: 500 });
+    imagePlan = { images: {} };
   }
 
   const storySystem = [
@@ -279,23 +288,23 @@ export async function POST(request: Request) {
   const readable = new ReadableStream({
     async start(controller) {
       try {
-        const usedSlots = Object.keys(imagePlan.images || {}) as ImageSlot[];
+        const style = [
+          "Storybook painterly illustration, calm and detailed, safe for children.",
+          "Soft edges, dreamy light, warm pastel palette, gentle haze.",
+          "No text, no scary elements, no harsh contrast.",
+          "Consistent art style across all images.",
+          !isAnimalCharacter ? "No animals unless explicitly described." : "",
+          `Theme: ${theme}.`,
+          `Place: ${place}.`,
+          `Character: ${character}.`,
+          `Direction: ${direction}.`,
+        ]
+          .filter(Boolean)
+          .join(" ");
 
-        const imageTasks = usedSlots.map(async (slot) => {
-          const prompt = imagePlan.images?.[slot]?.prompt;
-          if (!prompt) return;
-          const style = [
-            "Storybook painterly illustration, calm and detailed, safe for children.",
-            "Soft edges, dreamy light, warm pastel palette, gentle haze.",
-            "No text, no scary elements, no harsh contrast.",
-            "Consistent art style across all images.",
-            !isAnimalCharacter ? "No animals unless explicitly described." : "",
-            `Theme: ${theme}.`,
-            `Place: ${place}.`,
-            `Character: ${character}.`,
-          ]
-            .filter(Boolean)
-            .join(" ");
+        const slots = Object.keys(SLOT_CONFIG) as ImageSlot[];
+        const imageTasks = slots.map(async (slot) => {
+          const prompt = imagePlan.images?.[slot]?.prompt ?? DEFAULT_IMAGE_PROMPTS[slot];
           const predictionUrl = await createReplicatePrediction(
             `${style} ${prompt}`,
             SLOT_CONFIG[slot].aspect_ratio

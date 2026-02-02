@@ -253,23 +253,26 @@ export default function Home() {
 
   const renderStoryContent = () => {
     if (!storyText) return null;
+    const cleanedText = storyText
+      .replace(/\bNO_IMAGE\b\s*/g, "")
+      .replace(/\[\[IMG:[^\]]*$/g, "");
     const tokenRegex = /\[\[IMG:(slot_\d+):([a-z_]+)\]\]/g;
     const tokens: Array<
       | { type: "text"; value: string }
       | { type: "img"; slot: string; layout: string }
     > = [];
     let lastIndex = 0;
-    let match: RegExpExecArray | null = tokenRegex.exec(storyText);
+    let match: RegExpExecArray | null = tokenRegex.exec(cleanedText);
     while (match) {
       if (match.index > lastIndex) {
-        tokens.push({ type: "text", value: storyText.slice(lastIndex, match.index) });
+        tokens.push({ type: "text", value: cleanedText.slice(lastIndex, match.index) });
       }
       tokens.push({ type: "img", slot: match[1], layout: match[2] });
       lastIndex = match.index + match[0].length;
-      match = tokenRegex.exec(storyText);
+      match = tokenRegex.exec(cleanedText);
     }
-    if (lastIndex < storyText.length) {
-      tokens.push({ type: "text", value: storyText.slice(lastIndex) });
+    if (lastIndex < cleanedText.length) {
+      tokens.push({ type: "text", value: cleanedText.slice(lastIndex) });
     }
 
     const nodes: JSX.Element[] = [];
@@ -331,17 +334,19 @@ export default function Home() {
       }
 
       if (layout === "background_soft") {
+        const nextText =
+          i + 1 < tokens.length && tokens[i + 1].type === "text"
+            ? (tokens[i + 1] as { type: "text"; value: string }).value
+            : "";
         nodes.push(
           <div key={`bg-${i}`} className="relative overflow-hidden rounded-[26px]">
             <div className="absolute inset-0 opacity-60">{imageElement}</div>
             <div className="relative rounded-[26px] bg-white/75 p-8 shadow-[0_10px_24px_rgba(90,62,43,0.12)]">
-              <p className="text-sm text-[#5a3e2b]/70">
-                En mjuk stund i berättelsen.
-              </p>
+              {renderTextBlock(nextText, `bg-text-${i}`)}
             </div>
           </div>
         );
-        i += 1;
+        i += nextText ? 2 : 1;
         continue;
       }
 
