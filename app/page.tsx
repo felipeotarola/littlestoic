@@ -161,6 +161,7 @@ export default function Home() {
   const [selectedPlace, setSelectedPlace] = useState<string | null>(null);
   const [selectedDirection, setSelectedDirection] = useState<string | null>(null);
   const [parentSettings, setParentSettings] = useState<{
+    customMode?: boolean;
     childName?: string;
     nameMode?: string;
     language?: string;
@@ -275,12 +276,23 @@ export default function Home() {
       tokens.push({ type: "text", value: cleanedText.slice(lastIndex) });
     }
 
+    const heroIndex = tokens.findIndex(
+      (token) => token.type === "img" && token.slot === "slot_1"
+    );
+    if (heroIndex !== -1) {
+      tokens.splice(heroIndex, 1);
+    }
+
     const nodes: JSX.Element[] = [];
     let i = 0;
     while (i < tokens.length) {
       const token = tokens[i];
       if (token.type === "text") {
-        nodes.push(renderTextBlock(token.value, `text-${i}`));
+        nodes.push(
+          <div key={`text-${i}`}>
+            {renderTextBlock(token.value, `text-${i}`)}
+          </div>
+        );
         i += 1;
         continue;
       }
@@ -314,19 +326,17 @@ export default function Home() {
           i + 1 < tokens.length && tokens[i + 1].type === "text"
             ? (tokens[i + 1] as { type: "text"; value: string }).value
             : "";
+        const floatClass =
+          layout === "inline_right"
+            ? "md:float-right md:ml-6 md:mr-0"
+            : "md:float-left md:mr-6 md:ml-0";
         nodes.push(
-          <div
-            key={`inline-${i}`}
-            className="flex flex-col gap-6 md:flex-row md:items-start"
-          >
-            <div
-              className={`md:w-2/5 ${layout === "inline_right" ? "md:order-2" : ""}`}
-            >
+          <div key={`inline-${i}`} className="relative">
+            <div className={`mb-4 w-full md:w-2/5 ${floatClass}`}>
               {imageElement}
             </div>
-            <div className="md:w-3/5">
-              {renderTextBlock(nextText, `inline-text-${i}`)}
-            </div>
+            {renderTextBlock(nextText, `inline-text-${i}`)}
+            <div className="clear-both" />
           </div>
         );
         i += nextText ? 2 : 1;
@@ -358,7 +368,23 @@ export default function Home() {
       i += 1;
     }
 
-    return <div className="flex flex-col gap-8">{nodes}</div>;
+    const heroUrl = storyImages.slot_1;
+    return (
+      <div className="flex flex-col gap-8">
+        {heroUrl && (
+          <div className="overflow-hidden rounded-[24px] border border-white/70 bg-white/90 shadow-[0_12px_26px_rgba(90,62,43,0.12)]">
+            <Image
+              src={heroUrl}
+              alt="Sagbilde omslag"
+              width={1200}
+              height={800}
+              className="h-auto w-full object-cover"
+            />
+          </div>
+        )}
+        {nodes}
+      </div>
+    );
   };
 
   const startStory = async () => {
@@ -368,6 +394,7 @@ export default function Home() {
     streamBufferRef.current = "";
     setIsGenerating(true);
     try {
+      const useCustom = Boolean(parentSettings?.customMode);
       const response = await fetch("/api/story", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -376,14 +403,14 @@ export default function Home() {
           character: selectedCharacter,
           place: selectedPlace,
           direction: selectedDirection,
-          language: parentSettings?.language ?? "sv",
-          minutes: parentSettings?.maxLength ?? "5-8",
-          name: parentSettings?.childName ?? null,
-          nameMode: parentSettings?.nameMode ?? "fixed",
-          age: parentSettings?.age ?? null,
-          pronoun: parentSettings?.pronoun ?? null,
-          hometown: parentSettings?.hometown ?? null,
-          allowedThemes: parentSettings?.allowedThemes ?? null,
+          language: useCustom ? parentSettings?.language ?? "sv" : "sv",
+          minutes: useCustom ? parentSettings?.maxLength ?? "5-8" : "5-8",
+          name: useCustom ? parentSettings?.childName ?? null : null,
+          nameMode: useCustom ? parentSettings?.nameMode ?? "fixed" : null,
+          age: useCustom ? parentSettings?.age ?? null : null,
+          pronoun: useCustom ? parentSettings?.pronoun ?? null : null,
+          hometown: useCustom ? parentSettings?.hometown ?? null : null,
+          allowedThemes: useCustom ? parentSettings?.allowedThemes ?? null : null,
         }),
       });
 

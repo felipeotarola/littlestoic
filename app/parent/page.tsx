@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type Settings = {
+  customMode: boolean;
   childName: string;
   nameMode: "fixed" | "auto" | "random";
   language: "sv" | "en";
@@ -15,6 +16,7 @@ type Settings = {
 };
 
 const defaultSettings: Settings = {
+  customMode: false,
   childName: "",
   nameMode: "fixed",
   language: "sv",
@@ -121,10 +123,28 @@ export default function ParentPage() {
               Inställningar
             </h2>
             <div className="mt-6 grid gap-5">
+              <label className="flex items-center justify-between rounded-[18px] border border-[#5a3e2b]/15 bg-white/80 px-4 py-3 text-sm text-[#5a3e2b]/80">
+                Aktivera anpassat läge
+                <span className="relative inline-flex h-7 w-12 items-center">
+                  <input
+                    type="checkbox"
+                    className="peer sr-only"
+                    checked={settings.customMode}
+                    onChange={(event) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        customMode: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span className="absolute inset-0 rounded-full bg-[#5a3e2b]/15 transition peer-checked:bg-[#f3c46c]" />
+                  <span className="absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow transition peer-checked:translate-x-5" />
+                </span>
+              </label>
               <label className="flex flex-col gap-2 text-sm text-[#5a3e2b]/80">
                 Barnets namn
                 <input
-                  className="rounded-[14px] border border-[#5a3e2b]/20 bg-white px-4 py-3 text-base text-[#5a3e2b]"
+                  className="rounded-[14px] border border-[#5a3e2b]/20 bg-white px-4 py-3 text-base text-[#5a3e2b] disabled:opacity-60"
                   value={settings.childName}
                   onChange={(event) =>
                     setSettings((prev) => ({
@@ -132,6 +152,7 @@ export default function ParentPage() {
                       childName: event.target.value,
                     }))
                   }
+                  disabled={!settings.customMode}
                   placeholder="Namn"
                 />
               </label>
@@ -139,7 +160,7 @@ export default function ParentPage() {
               <label className="flex flex-col gap-2 text-sm text-[#5a3e2b]/80">
                 Namn-läge
                 <select
-                  className="rounded-[14px] border border-[#5a3e2b]/20 bg-white px-4 py-3 text-base text-[#5a3e2b]"
+                  className="rounded-[14px] border border-[#5a3e2b]/20 bg-white px-4 py-3 text-base text-[#5a3e2b] disabled:opacity-60"
                   value={settings.nameMode}
                   onChange={(event) =>
                     setSettings((prev) => ({
@@ -147,6 +168,7 @@ export default function ParentPage() {
                       nameMode: event.target.value as Settings["nameMode"],
                     }))
                   }
+                  disabled={!settings.customMode}
                 >
                   <option value="fixed">Fast</option>
                   <option value="auto">Auto-genererat</option>
@@ -158,7 +180,7 @@ export default function ParentPage() {
                 <label className="flex flex-col gap-2 text-sm text-[#5a3e2b]/80">
                   Språk
                   <select
-                    className="rounded-[14px] border border-[#5a3e2b]/20 bg-white px-4 py-3 text-base text-[#5a3e2b]"
+                    className="rounded-[14px] border border-[#5a3e2b]/20 bg-white px-4 py-3 text-base text-[#5a3e2b] disabled:opacity-60"
                     value={settings.language}
                     onChange={(event) =>
                       setSettings((prev) => ({
@@ -166,6 +188,7 @@ export default function ParentPage() {
                         language: event.target.value as Settings["language"],
                       }))
                     }
+                    disabled={!settings.customMode}
                   >
                     <option value="sv">Svenska</option>
                     <option value="en">English</option>
@@ -174,7 +197,7 @@ export default function ParentPage() {
                 <label className="flex flex-col gap-2 text-sm text-[#5a3e2b]/80">
                   Ålder
                   <input
-                    className="rounded-[14px] border border-[#5a3e2b]/20 bg-white px-4 py-3 text-base text-[#5a3e2b]"
+                    className="rounded-[14px] border border-[#5a3e2b]/20 bg-white px-4 py-3 text-base text-[#5a3e2b] disabled:opacity-60"
                     type="number"
                     min={4}
                     max={10}
@@ -185,6 +208,7 @@ export default function ParentPage() {
                         age: event.target.value,
                       }))
                     }
+                    disabled={!settings.customMode}
                   />
                 </label>
               </div>
@@ -192,7 +216,7 @@ export default function ParentPage() {
               <label className="flex flex-col gap-2 text-sm text-[#5a3e2b]/80">
                 Max längd
                 <select
-                  className="rounded-[14px] border border-[#5a3e2b]/20 bg-white px-4 py-3 text-base text-[#5a3e2b]"
+                  className="rounded-[14px] border border-[#5a3e2b]/20 bg-white px-4 py-3 text-base text-[#5a3e2b] disabled:opacity-60"
                   value={settings.maxLength}
                   onChange={(event) =>
                     setSettings((prev) => ({
@@ -200,6 +224,7 @@ export default function ParentPage() {
                       maxLength: event.target.value as Settings["maxLength"],
                     }))
                   }
+                  disabled={!settings.customMode}
                 >
                   <option value="3-5">3–5 min</option>
                   <option value="5-8">5–8 min</option>
@@ -210,7 +235,7 @@ export default function ParentPage() {
               <label className="flex flex-col gap-2 text-sm text-[#5a3e2b]/80">
                 Pronomen
                 <select
-                  className="rounded-[14px] border border-[#5a3e2b]/20 bg-white px-4 py-3 text-base text-[#5a3e2b]"
+                  className="rounded-[14px] border border-[#5a3e2b]/20 bg-white px-4 py-3 text-base text-[#5a3e2b] disabled:opacity-60"
                   value={settings.pronoun}
                   onChange={(event) =>
                     setSettings((prev) => ({
@@ -218,6 +243,7 @@ export default function ParentPage() {
                       pronoun: event.target.value as Settings["pronoun"],
                     }))
                   }
+                  disabled={!settings.customMode}
                 >
                   <option value="han">Han</option>
                   <option value="hon">Hon</option>
@@ -229,7 +255,7 @@ export default function ParentPage() {
               <label className="flex flex-col gap-2 text-sm text-[#5a3e2b]/80">
                 Hemstad
                 <input
-                  className="rounded-[14px] border border-[#5a3e2b]/20 bg-white px-4 py-3 text-base text-[#5a3e2b]"
+                  className="rounded-[14px] border border-[#5a3e2b]/20 bg-white px-4 py-3 text-base text-[#5a3e2b] disabled:opacity-60"
                   value={settings.hometown}
                   onChange={(event) =>
                     setSettings((prev) => ({
@@ -237,6 +263,7 @@ export default function ParentPage() {
                       hometown: event.target.value,
                     }))
                   }
+                  disabled={!settings.customMode}
                   placeholder="Valfri"
                 />
               </label>
@@ -250,11 +277,12 @@ export default function ParentPage() {
                       <button
                         key={theme}
                         type="button"
+                        disabled={!settings.customMode}
                         className={`rounded-full border px-4 py-2 text-xs font-semibold ${
                           active
                             ? "border-[#f27b6a] bg-[#fbe3d7] text-[#5a3e2b]"
                             : "border-[#5a3e2b]/20 bg-white text-[#5a3e2b]/70"
-                        }`}
+                        } disabled:opacity-60`}
                         onClick={() =>
                           setSettings((prev) => ({
                             ...prev,

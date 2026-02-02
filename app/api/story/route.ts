@@ -105,6 +105,8 @@ const SLOT_CONFIG = {
   slot_2: { aspect_ratio: "1:1" as const },
   slot_3: { aspect_ratio: "3:2" as const },
   slot_4: { aspect_ratio: "1:1" as const },
+  slot_5: { aspect_ratio: "3:2" as const },
+  slot_6: { aspect_ratio: "1:1" as const },
 };
 
 type ImageSlot = keyof typeof SLOT_CONFIG;
@@ -129,6 +131,8 @@ const FIXED_BEATS: FixedBeat[] = [
   { beat: 3, layout_type: "no_image", image_slot: null },
   { beat: 4, layout_type: "inline_right", image_slot: "slot_4" },
   { beat: 5, layout_type: "background_soft", image_slot: "slot_3" },
+  { beat: 6, layout_type: "cutaway", image_slot: "slot_6" },
+  { beat: 7, layout_type: "hero_wide", image_slot: "slot_5" },
 ];
 
 const DEFAULT_IMAGE_PROMPTS: Record<ImageSlot, string> = {
@@ -136,6 +140,15 @@ const DEFAULT_IMAGE_PROMPTS: Record<ImageSlot, string> = {
   slot_2: "Närbild av huvudpersonen eller en viktig detalj, vänlig och lugn.",
   slot_3: "Mjukt bakgrundsljus och atmosfär, drömlikt och varmt.",
   slot_4: "Liten detalj eller föremål som antyder riktning eller lärdom.",
+  slot_5: "En senare scen som visar att berättelsen har utvecklats, varm och trygg.",
+  slot_6: "En liten symbolisk detalj som känns viktig för huvudpersonen.",
+};
+
+type CharacterProfile = {
+  kind: "child" | "animal" | "other";
+  name: string;
+  description: string;
+  species?: string;
 };
 
 export async function POST(request: Request) {
@@ -164,15 +177,71 @@ export async function POST(request: Request) {
 
   const durationLine =
     minutes === "3-5"
-      ? "Sagan ska vara 3–5 minuter lång att läsa (cirka 500–700 ord)."
+      ? "Sagan ska vara 4–6 minuter lång att läsa (cirka 650–900 ord)."
       : minutes === "8-10"
-        ? "Sagan ska vara 8–10 minuter lång att läsa (cirka 1300–1600 ord)."
-        : "Sagan ska vara 5–8 minuter lång att läsa (cirka 900–1200 ord).";
+        ? "Sagan ska vara 9–12 minuter lång att läsa (cirka 1600–2200 ord)."
+        : "Sagan ska vara 7–10 minuter lång att läsa (cirka 1200–1600 ord).";
 
   const languageLine =
     language === "en"
       ? "Write in clear, gentle English."
       : "Skriv på lättläst svenska med korta meningar och tydliga stycken.";
+
+  const characterSystem = [
+    "Du skapar en kort karaktärsprofil för en trygg barnberättelse.",
+    "Svara ENDAST med giltig JSON.",
+  ].join(" ");
+
+  const characterUser = [
+    "Skapa en karaktärsprofil.",
+    `Vald karaktärstyp: ${character}.`,
+    `Tema: ${theme}.`,
+    `Plats: ${place}.`,
+    `Riktning: ${direction}.`,
+    childName ? `Barnets namn: ${childName}.` : "Barnets namn: ej angivet.",
+    "",
+    "Regler:",
+    "- Om karaktärstypen är ett djur: välj en specifik art som passar platsen.",
+    "- Om karaktärstypen är barn: välj ett namn om inte fast namn finns.",
+    "- Håll det varmt, tryggt, 6–10 år.",
+    "",
+    "Output-format (JSON):",
+    '{ "kind": "child|animal|other", "name": "...", "description": "...", "species": "..." }',
+  ].join("\n");
+
+  const characterResp = await client.responses.create({
+    model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+    input: [
+      { role: "system", content: characterSystem },
+      { role: "user", content: characterUser },
+    ],
+    temperature: 0.5,
+    max_output_tokens: 300,
+  });
+
+  const characterText =
+    characterResp.output_text ??
+    characterResp.output
+      ?.map((o: any) =>
+        o.content?.map((c: any) => (typeof c.text === "string" ? c.text : "")).join("")
+      )
+      .join("") ??
+    "";
+
+  let characterProfile: CharacterProfile = {
+    kind: isAnimalCharacter ? "animal" : "child",
+    name: childName ?? "",
+    description: character,
+  };
+  try {
+    characterProfile = JSON.parse(characterText) as CharacterProfile;
+  } catch {
+    // keep fallback
+  }
+
+  if (childName && characterProfile.kind === "child") {
+    characterProfile.name = childName;
+  }
 
   const imagePromptSystem = [
     "Du är en trygg, varm och fantasifull sagoberättare för barn 6–10 år.",
@@ -183,7 +252,9 @@ export async function POST(request: Request) {
   const imagePromptUser = [
     "Skapa bildprompter för följande fasta slots.",
     `Tema: ${theme}.`,
-    `Huvudperson: ${character}.`,
+    `Huvudperson: ${characterProfile.name || "Huvudperson"}.`,
+    `Karaktärsbeskrivning: ${characterProfile.description}.`,
+    characterProfile.species ? `Art: ${characterProfile.species}.` : "",
     `Plats: ${place}.`,
     `Riktning: ${direction}.`,
     childName ? `Barnets namn: ${childName}.` : "Barnets namn: ej angivet.",
@@ -196,6 +267,8 @@ export async function POST(request: Request) {
     "- slot_2 = karaktär/objekt nära (square 1:1)",
     "- slot_3 = mjuk bakgrundsstämning (wide 3:2)",
     "- slot_4 = liten detalj/cutaway (square 1:1)",
+    "- slot_5 = senare scen (wide 3:2)",
+    "- slot_6 = symbolisk detalj (square 1:1)",
     "",
     "Regler:",
     "- Samma visuella stil i alla bilder.",
@@ -203,7 +276,7 @@ export async function POST(request: Request) {
     "- Barnvänligt, lugnt, inte skrämmande.",
     "",
     "Output-format (JSON):",
-    '{ "images": { "slot_1": { "prompt": "..." }, "slot_2": { "prompt": "..." }, "slot_3": { "prompt": "..." }, "slot_4": { "prompt": "..." } } }',
+    '{ "images": { "slot_1": { "prompt": "..." }, "slot_2": { "prompt": "..." }, "slot_3": { "prompt": "..." }, "slot_4": { "prompt": "..." }, "slot_5": { "prompt": "..." }, "slot_6": { "prompt": "..." } } }',
   ].join("\n");
 
   const imagePromptResp = await client.responses.create({
@@ -244,6 +317,9 @@ export async function POST(request: Request) {
     "Ingen våldsam konflikt. Alltid positiv upplösning.",
     "Struktur: början – mitt – slut.",
     "Ingen markdown, inga listor. Bara ren text i stycken.",
+    "Lägg in mjuk humor och små oväntade, snälla detaljer.",
+    "Humorn ska vara varm, lätt och aldrig elak.",
+    "Stoicismen ska märkas som klokhet, självkontroll och perspektiv – men gärna med ett leende.",
     "Du måste inkludera placeholder-taggar exakt som angivet, på egen rad.",
     "Ändra inte taggarna och lägg inte till extra taggar.",
   ].join(" ");
@@ -258,7 +334,9 @@ export async function POST(request: Request) {
   const storyUser = [
     "Skriv en personlig saga baserad på följande val:",
     `Tema: ${theme}.`,
-    `Huvudperson: ${character}.`,
+    `Huvudperson: ${characterProfile.name || "Huvudperson"}.`,
+    `Karaktärsbeskrivning: ${characterProfile.description}.`,
+    characterProfile.species ? `Art: ${characterProfile.species}.` : "",
     `Plats: ${place}.`,
     `Riktning: ${direction}.`,
     childName ? `Barnets namn: ${childName}.` : "Barnets namn: ej angivet.",
@@ -269,6 +347,8 @@ export async function POST(request: Request) {
     "",
     "Följ beatsen i ordning och inkludera placeholder-taggarna exakt en gång där de passar.",
     "Använd inga andra placeholder-taggar än de som står i listan.",
+    "Lägg in 2–3 små oväntade men trygga händelser som gör sagan charmig.",
+    "Låt hjälten göra kloka val och reflektera lugnt när något oväntat händer.",
     ...beatLines,
   ].join("\n");
 
@@ -280,7 +360,7 @@ export async function POST(request: Request) {
     ],
     temperature: 0.8,
     max_output_tokens:
-      minutes === "3-5" ? 1400 : minutes === "8-10" ? 2600 : 2000,
+      minutes === "3-5" ? 1800 : minutes === "8-10" ? 3200 : 2500,
   });
 
   const encoder = new TextEncoder();
@@ -293,6 +373,7 @@ export async function POST(request: Request) {
           "Soft edges, dreamy light, warm pastel palette, gentle haze.",
           "No text, no scary elements, no harsh contrast.",
           "Consistent art style across all images.",
+          "Add a tiny whimsical, friendly detail that feels surprising but cozy.",
           !isAnimalCharacter ? "No animals unless explicitly described." : "",
           `Theme: ${theme}.`,
           `Place: ${place}.`,
