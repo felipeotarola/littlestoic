@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+﻿import OpenAI from "openai";
 
 export const runtime = "nodejs";
 
@@ -117,29 +117,19 @@ type LayoutType =
   | "cutaway"
   | "no_image";
 
-type LayoutBeat = {
+type FixedBeat = {
   beat: number;
   layout_type: LayoutType;
   image_slot: ImageSlot | null;
-  summary: string;
 };
 
-type LayoutPlan = {
-  beats: LayoutBeat[];
-  images: Partial<Record<ImageSlot, { prompt: string }>>;
-};
-
-function extractPlanText(planResp: Awaited<ReturnType<typeof client.responses.create>>) {
-  if ('output_text' in planResp && planResp.output_text) return planResp.output_text;
-  if ('output' in planResp && planResp.output) {
-    return planResp.output
-      .map((o: any) =>
-        o.content?.map((c: any) => (typeof c.text === "string" ? c.text : "")).join("")
-      )
-      .join("");
-  }
-  return "";
-}
+const FIXED_BEATS: FixedBeat[] = [
+  { beat: 1, layout_type: "hero_wide", image_slot: "slot_1" },
+  { beat: 2, layout_type: "inline_left", image_slot: "slot_2" },
+  { beat: 3, layout_type: "no_image", image_slot: null },
+  { beat: 4, layout_type: "inline_right", image_slot: "slot_4" },
+  { beat: 5, layout_type: "background_soft", image_slot: "slot_3" },
+];
 
 export async function POST(request: Request) {
   if (!process.env.OPENAI_API_KEY) {
@@ -177,66 +167,64 @@ export async function POST(request: Request) {
       ? "Write in clear, gentle English."
       : "Skriv på lättläst svenska med korta meningar och tydliga stycken.";
 
-  const plannerSystem = [
+  const imagePromptSystem = [
     "Du är en trygg, varm och fantasifull sagoberättare för barn 6–10 år.",
-    "Du planerar en dynamisk bok/blog-layout med inbäddade bilder.",
+    "Du skapar bildprompter för en sagobok i en konsekvent, mjuk målad stil.",
     "Du måste svara ENDAST med giltig JSON. Ingen annan text.",
   ].join(" ");
 
-  const plannerUser = [
-    "Skapa en layoutplan för en saga.",
+  const imagePromptUser = [
+    "Skapa bildprompter för följande fasta slots.",
     `Tema: ${theme}.`,
     `Huvudperson: ${character}.`,
     `Plats: ${place}.`,
     `Riktning: ${direction}.`,
     childName ? `Barnets namn: ${childName}.` : "Barnets namn: ej angivet.",
-    `Namn-läge: ${nameMode}.`,
     age ? `Ålder: ${age}.` : "Ålder: ej angivet.",
     pronoun ? `Pronomen: ${pronoun}.` : "Pronomen: ej angivet.",
     hometown ? `Hemstad: ${hometown}.` : "Hemstad: ej angivet.",
     "",
+    "Slots (måste finnas):",
+    "- slot_1 = etablerande scen (wide 3:2)",
+    "- slot_2 = karaktär/objekt nära (square 1:1)",
+    "- slot_3 = mjuk bakgrundsstämning (wide 3:2)",
+    "- slot_4 = liten detalj/cutaway (square 1:1)",
+    "",
     "Regler:",
-    durationLine,
-    languageLine,
-    "Allt ska vara barnvänligt, lugnt och aldrig skrämmande.",
-    "Ingen våldsam konflikt. Alltid positiv upplösning.",
-    "Struktur: början – mitt – slut.",
-    "",
-    "Bildslots:",
-    "- slot_1 = wide (3:2) etablerande scen",
-    "- slot_2 = square (1:1) karaktär/objekt, kan ligga inline med text",
-    "- slot_3 = wide (3:2) kan användas som background_soft",
-    "- slot_4 = square (1:1) detalj/cutaway",
-    "",
-    "Krav på variation:",
-    "- Minst 2 beats med inline_left eller inline_right.",
-    "- Minst 1 beat med background_soft.",
-    "- Minst 1 beat med no_image.",
+    "- Samma visuella stil i alla bilder.",
+    "- Ingen text i bilderna.",
+    "- Barnvänligt, lugnt, inte skrämmande.",
     "",
     "Output-format (JSON):",
-    '{ "beats":[{ "beat":1, "layout_type":"...", "image_slot":"slot_1|null", "summary":"..." }], "images":{ "slot_1":{ "prompt":"..." } } }',
-    "",
-    "Summary-regel:",
-    "- summary är 1–2 meningar som beskriver vad som händer i beatet.",
-    "- Ingen markdown, inga listor.",
+    '{ "images": { "slot_1": { "prompt": "..." }, "slot_2": { "prompt": "..." }, "slot_3": { "prompt": "..." }, "slot_4": { "prompt": "..." } } }',
   ].join("\n");
 
-  const planResp = await client.responses.create({
+  const imagePromptResp = await client.responses.create({
     model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
     input: [
-      { role: "system", content: plannerSystem },
-      { role: "user", content: plannerUser },
+      { role: "system", content: imagePromptSystem },
+      { role: "user", content: imagePromptUser },
     ],
-    temperature: 0.7,
-    max_output_tokens: 1800,
+    temperature: 0.6,
+    max_output_tokens: 900,
   });
 
-  const planText = extractPlanText(planResp);
-  let plan: LayoutPlan;
+  const imagePromptText =
+    imagePromptResp.output_text ??
+    imagePromptResp.output
+      ?.map((o: any) =>
+        o.content?.map((c: any) => (typeof c.text === "string" ? c.text : "")).join("")
+      )
+      .join("") ??
+    "";
+
+  let imagePlan: { images: Partial<Record<ImageSlot, { prompt: string }>> };
   try {
-    plan = JSON.parse(planText) as LayoutPlan;
+    imagePlan = JSON.parse(imagePromptText) as {
+      images: Partial<Record<ImageSlot, { prompt: string }>>;
+    };
   } catch {
-    return new Response("Failed to parse layout plan.", { status: 500 });
+    return new Response("Failed to parse image prompts.", { status: 500 });
   }
 
   const storySystem = [
@@ -251,11 +239,11 @@ export async function POST(request: Request) {
     "Ändra inte taggarna och lägg inte till extra taggar.",
   ].join(" ");
 
-  const beatLines = plan.beats.map((beat) => {
+  const beatLines = FIXED_BEATS.map((beat) => {
     const placeholder = beat.image_slot
       ? `[[IMG:${beat.image_slot}:${beat.layout_type}]]`
       : "NO_IMAGE";
-    return `Beat ${beat.beat}: ${beat.summary} | Placeholder: ${placeholder}`;
+    return `Beat ${beat.beat}: layout ${beat.layout_type} | Placeholder: ${placeholder}`;
   });
 
   const storyUser = [
@@ -271,6 +259,7 @@ export async function POST(request: Request) {
     hometown ? `Hemstad: ${hometown}.` : "Hemstad: ej angivet.",
     "",
     "Följ beatsen i ordning och inkludera placeholder-taggarna exakt en gång där de passar.",
+    "Använd inga andra placeholder-taggar än de som står i listan.",
     ...beatLines,
   ].join("\n");
 
@@ -290,10 +279,10 @@ export async function POST(request: Request) {
   const readable = new ReadableStream({
     async start(controller) {
       try {
-        const usedSlots = Object.keys(plan.images || {}) as ImageSlot[];
+        const usedSlots = Object.keys(imagePlan.images || {}) as ImageSlot[];
 
         const imageTasks = usedSlots.map(async (slot) => {
-          const prompt = plan.images?.[slot]?.prompt;
+          const prompt = imagePlan.images?.[slot]?.prompt;
           if (!prompt) return;
           const style = [
             "Storybook painterly illustration, calm and detailed, safe for children.",
@@ -312,9 +301,7 @@ export async function POST(request: Request) {
             SLOT_CONFIG[slot].aspect_ratio
           );
           const imageUrl = await waitForReplicate(predictionUrl);
-          controller.enqueue(
-            encoder.encode(`\n[[IMAGE:${slot}:${imageUrl}]]\n`)
-          );
+          controller.enqueue(encoder.encode(`\n[[IMAGE:${slot}:${imageUrl}]]\n`));
         });
 
         for await (const event of storyStream) {
