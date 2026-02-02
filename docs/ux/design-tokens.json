@@ -1,0 +1,36 @@
+{
+  "color": {
+    "cream": "#FFF5E6",
+    "honey": "#F3C46C",
+    "coral": "#F27B6A",
+    "sky": "#7CC7E8",
+    "sage": "#8BC8A5",
+    "cocoa": "#5A3E2B",
+    "white": "#FFFFFF"
+  },
+  "radius": {
+    "sm": 12,
+    "md": 20,
+    "lg": 28
+  },
+  "space": {
+    "xs": 4,
+    "sm": 8,
+    "md": 16,
+    "lg": 24,
+    "xl": 32
+  },
+  "type": {
+    "display": "Fraunces",
+    "ui": "Bricolage Grotesque",
+    "size": {
+      "h1": 32,
+      "h2": 24,
+      "body": 18,
+      "caption": 14
+    }
+  },
+  "shadow": {
+    "soft": "0 6 18 rgba(90, 62, 43, 0.15)"
+  }
+}
