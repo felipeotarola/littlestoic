@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { JSX, useEffect, useRef, useState } from "react";
+import { JSX, useEffect, useMemo, useRef, useState } from "react";
 
 const themeCards = [
   {
@@ -252,137 +252,133 @@ export default function Home() {
     );
   };
 
-  const renderStoryContent = () => {
-    if (!storyText) return null;
-    const cleanedText = storyText
+  const beats = useMemo(() => {
+    if (!storyText) return [] as Array<{ id: string; slot: string | null; text: string }>;
+    const cleaned = storyText
       .replace(/\bNO_IMAGE\b\s*/g, "")
       .replace(/\[\[IMG:[^\]]*$/g, "");
     const tokenRegex = /\[\[IMG:(slot_\d+):([a-z_]+)\]\]/g;
-    const tokens: Array<
-      | { type: "text"; value: string }
-      | { type: "img"; slot: string; layout: string }
-    > = [];
+    const list: Array<{ id: string; slot: string | null; text: string }> = [];
+    let currentSlot: string | null = null;
+    let currentText = "";
     let lastIndex = 0;
-    let match: RegExpExecArray | null = tokenRegex.exec(cleanedText);
-    while (match) {
-      if (match.index > lastIndex) {
-        tokens.push({ type: "text", value: cleanedText.slice(lastIndex, match.index) });
-      }
-      tokens.push({ type: "img", slot: match[1], layout: match[2] });
+    let match: RegExpExecArray | null;
+
+    const pushBeat = () => {
+      const text = currentText.trim();
+      if (!currentSlot && !text) return;
+      list.push({
+        id: `beat-${list.length}`,
+        slot: currentSlot,
+        text: currentText,
+      });
+      currentText = "";
+    };
+
+    while ((match = tokenRegex.exec(cleaned))) {
+      const before = cleaned.slice(lastIndex, match.index);
+      currentText += before;
+      pushBeat();
+      currentSlot = match[1];
       lastIndex = match.index + match[0].length;
-      match = tokenRegex.exec(cleanedText);
-    }
-    if (lastIndex < cleanedText.length) {
-      tokens.push({ type: "text", value: cleanedText.slice(lastIndex) });
     }
 
-    const heroIndex = tokens.findIndex(
-      (token) => token.type === "img" && token.slot === "slot_1"
+    currentText += cleaned.slice(lastIndex);
+    pushBeat();
+
+    return list;
+  }, [storyText]);
+
+  const [activeSlot, setActiveSlot] = useState<string | null>(null);
+  const beatRefs = useRef<Array<HTMLDivElement | null>>([]);
+
+  useEffect(() => {
+    if (!beats.length) return;
+    setActiveSlot((prev) => prev ?? beats.find((b) => b.slot)?.slot ?? "slot_1");
+  }, [beats]);
+
+  useEffect(() => {
+    if (!beats.length) return;
+    const els = beatRefs.current.filter(Boolean) as HTMLDivElement[];
+    if (!els.length) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+        if (!visible) return;
+        const index = Number(
+          (visible.target as HTMLElement).getAttribute("data-index") || 0
+        );
+        const slot = beats[index]?.slot;
+        if (slot) setActiveSlot(slot);
+      },
+      { rootMargin: "-220px 0px -55% 0px", threshold: 0.01 }
     );
-    if (heroIndex !== -1) {
-      tokens.splice(heroIndex, 1);
-    }
+    els.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [beats]);
 
-    const nodes: JSX.Element[] = [];
-    let i = 0;
-    while (i < tokens.length) {
-      const token = tokens[i];
-      if (token.type === "text") {
-        nodes.push(
-          <div key={`text-${i}`}>
-            {renderTextBlock(token.value, `text-${i}`)}
-          </div>
-        );
-        i += 1;
-        continue;
-      }
+  function StickyImage({
+    active,
+    images,
+  }: {
+    active: string | null;
+    images: Record<string, string>;
+  }) {
+    const url = (active && images[active]) || "";
+    const [shownUrl, setShownUrl] = useState(url);
+    const [fading, setFading] = useState(false);
 
-      const imageUrl = storyImages[token.slot];
-      const layout = token.layout;
-      const imageElement = (
-        <div
-          className={`relative overflow-hidden rounded-[22px] border border-white/70 bg-white/90 shadow-[0_12px_26px_rgba(90,62,43,0.12)] ${
-            layout === "cutaway" ? "max-w-xs" : "w-full"
-          }`}
-        >
-          {imageUrl ? (
-            <Image
-              src={imageUrl}
-              alt="Sagbilde"
-              width={layout === "cutaway" ? 600 : 1200}
-              height={layout === "cutaway" ? 600 : 800}
-              className="h-auto w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-64 w-full items-center justify-center bg-[#f7efe3] text-sm text-[#5a3e2b]/60">
-              Skapar bild...
-            </div>
-          )}
-        </div>
-      );
+    useEffect(() => {
+      if (!url || url === shownUrl) return;
+      setFading(true);
+      const t = setTimeout(() => {
+        setShownUrl(url);
+        setFading(false);
+      }, 200);
+      return () => clearTimeout(t);
+    }, [url, shownUrl]);
 
-      if (layout === "inline_left" || layout === "inline_right") {
-        const nextText =
-          i + 1 < tokens.length && tokens[i + 1].type === "text"
-            ? (tokens[i + 1] as { type: "text"; value: string }).value
-            : "";
-        const floatClass =
-          layout === "inline_right"
-            ? "md:float-right md:ml-6 md:mr-0"
-            : "md:float-left md:mr-6 md:ml-0";
-        nodes.push(
-          <div key={`inline-${i}`} className="relative">
-            <div className={`mb-4 w-full md:w-2/5 ${floatClass}`}>
-              {imageElement}
-            </div>
-            {renderTextBlock(nextText, `inline-text-${i}`)}
-            <div className="clear-both" />
-          </div>
-        );
-        i += nextText ? 2 : 1;
-        continue;
-      }
-
-      if (layout === "background_soft") {
-        const nextText =
-          i + 1 < tokens.length && tokens[i + 1].type === "text"
-            ? (tokens[i + 1] as { type: "text"; value: string }).value
-            : "";
-        nodes.push(
-          <div key={`bg-${i}`} className="relative overflow-hidden rounded-[26px]">
-            <div className="absolute inset-0 opacity-60">{imageElement}</div>
-            <div className="relative rounded-[26px] bg-white/75 p-8 shadow-[0_10px_24px_rgba(90,62,43,0.12)]">
-              {renderTextBlock(nextText, `bg-text-${i}`)}
-            </div>
-          </div>
-        );
-        i += nextText ? 2 : 1;
-        continue;
-      }
-
-      nodes.push(
-        <div key={`img-${i}`} className="flex justify-center">
-          {imageElement}
-        </div>
-      );
-      i += 1;
-    }
-
-    const heroUrl = storyImages.slot_1;
     return (
-      <div className="flex flex-col gap-8">
-        {heroUrl && (
-          <div className="overflow-hidden rounded-[24px] border border-white/70 bg-white/90 shadow-[0_12px_26px_rgba(90,62,43,0.12)]">
+      <div className="overflow-hidden rounded-[20px] border border-white/70 bg-white/90 shadow-[0_12px_26px_rgba(90,62,43,0.12)]">
+        {shownUrl ? (
+          <div className={`transition-opacity duration-200 ${fading ? "opacity-60" : "opacity-100"}`}>
             <Image
-              src={heroUrl}
-              alt="Sagbilde omslag"
+              src={shownUrl}
+              alt="Sagbilde"
               width={1200}
               height={800}
               className="h-auto w-full object-cover"
+              priority
             />
           </div>
+        ) : (
+          <div className="flex h-64 w-full items-center justify-center bg-[#f7efe3] text-sm text-[#5a3e2b]/60">
+            Skapar bild...
+          </div>
         )}
-        {nodes}
+      </div>
+    );
+  }
+
+  const renderStoryContent = () => {
+    if (!beats.length) return null;
+    return (
+      <div className="flex flex-col gap-8">
+        {beats.map((beat, index) => (
+          <div key={beat.id} className="relative">
+            <div
+              ref={(el) => {
+                beatRefs.current[index] = el;
+              }}
+              data-index={index}
+              className="h-px w-full"
+              style={{ scrollMarginTop: 280 }}
+            />
+            {renderTextBlock(beat.text, beat.id)}
+          </div>
+        ))}
       </div>
     );
   };
@@ -482,8 +478,8 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top,_#fff5e6_0%,_#fbe8c7_40%,_#f7d7c0_100%)]">
-      <div className="pointer-events-none absolute inset-0">
+    <div className="relative min-h-screen bg-[radial-gradient(circle_at_top,_#fff5e6_0%,_#fbe8c7_40%,_#f7d7c0_100%)]">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -left-24 top-24 h-64 w-64 rounded-full bg-[rgba(124,199,232,0.35)] blur-3xl" />
         <div className="absolute right-10 top-6 h-40 w-40 rounded-full bg-[rgba(139,200,165,0.45)] blur-2xl" />
         <div className="absolute bottom-12 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-[rgba(242,123,106,0.25)] blur-3xl" />
@@ -643,8 +639,11 @@ export default function Home() {
                   </div>
                 )}
                 {(storyText || Object.keys(storyImages).length > 0) && (
-                  <div className="w-full max-w-3xl rounded-[28px] border border-white/70 bg-white/85 p-8 text-[18px] leading-8 text-[#5a3e2b] shadow-[0_12px_26px_rgba(90,62,43,0.12)]">
-                    {renderStoryContent()}
+                  <div className="w-full max-w-3xl rounded-[28px] border border-white/70 bg-white/85 text-[18px] leading-8 text-[#5a3e2b] shadow-[0_12px_26px_rgba(90,62,43,0.12)]">
+                    <div className="sticky top-0 z-20 bg-white/85 px-6 pb-4 pt-4 backdrop-blur-md">
+                      <StickyImage active={activeSlot} images={storyImages} />
+                    </div>
+                    <div className="px-8 pb-8 pt-2">{renderStoryContent()}</div>
                   </div>
                 )}
                 {storyError && (
