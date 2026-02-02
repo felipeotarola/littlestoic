@@ -162,6 +162,7 @@ export default function Home() {
   const [selectedDirection, setSelectedDirection] = useState<string | null>(null);
   const [parentSettings, setParentSettings] = useState<{
     customMode?: boolean;
+    imageMotion?: boolean;
     childName?: string;
     nameMode?: string;
     language?: string;
@@ -322,9 +323,11 @@ export default function Home() {
   function StickyImage({
     active,
     images,
+    motionEnabled,
   }: {
     active: string | null;
     images: Record<string, string>;
+    motionEnabled: boolean;
   }) {
     const url = (active && images[active]) || "";
     const [shownUrl, setShownUrl] = useState(url);
@@ -343,7 +346,11 @@ export default function Home() {
     return (
       <div className="overflow-hidden rounded-[20px] border border-white/70 bg-white/90 shadow-[0_12px_26px_rgba(90,62,43,0.12)]">
         {shownUrl ? (
-          <div className={`transition-opacity duration-200 ${fading ? "opacity-60" : "opacity-100"}`}>
+          <div
+            className={`transition-opacity duration-200 ${
+              fading ? "opacity-60" : "opacity-100"
+            } ${motionEnabled ? "story-motion" : ""}`}
+          >
             <Image
               src={shownUrl}
               alt="Sagbilde"
@@ -476,6 +483,10 @@ export default function Home() {
       setParentSettings(null);
     }
   }, []);
+
+  const motionEnabled = parentSettings?.customMode
+    ? parentSettings.imageMotion !== false
+    : true;
 
   return (
     <div className="relative min-h-screen bg-[radial-gradient(circle_at_top,_#fff5e6_0%,_#fbe8c7_40%,_#f7d7c0_100%)]">
@@ -641,7 +652,11 @@ export default function Home() {
                 {(storyText || Object.keys(storyImages).length > 0) && (
                   <div className="w-full max-w-3xl rounded-[28px] border border-white/70 bg-white/85 text-[18px] leading-8 text-[#5a3e2b] shadow-[0_12px_26px_rgba(90,62,43,0.12)]">
                     <div className="sticky top-0 z-20 bg-white/85 px-6 pb-4 pt-4 backdrop-blur-md">
-                      <StickyImage active={activeSlot} images={storyImages} />
+                      <StickyImage
+                        active={activeSlot}
+                        images={storyImages}
+                        motionEnabled={motionEnabled}
+                      />
                     </div>
                     <div className="px-8 pb-8 pt-2">{renderStoryContent()}</div>
                   </div>
@@ -704,6 +719,32 @@ export default function Home() {
           </div>
         </section>
       </main>
+      <style jsx global>{`
+        @keyframes story-motion {
+          0% {
+            transform: scale(1) translate3d(0, 0, 0);
+          }
+          40% {
+            transform: scale(1.045) translate3d(0.8%, -0.6%, 0);
+          }
+          70% {
+            transform: scale(1.03) translate3d(-0.7%, 0.4%, 0);
+          }
+          100% {
+            transform: scale(1) translate3d(0, 0, 0);
+          }
+        }
+        .story-motion {
+          animation: story-motion 16s ease-in-out infinite;
+          transform-origin: 50% 45%;
+          will-change: transform;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .story-motion {
+            animation: none;
+          }
+        }
+      `}</style>
     </div>
   );
 }

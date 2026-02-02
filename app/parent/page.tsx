@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type Settings = {
   customMode: boolean;
+  imageMotion: boolean;
   childName: string;
   nameMode: "fixed" | "auto" | "random";
   language: "sv" | "en";
@@ -17,6 +18,7 @@ type Settings = {
 
 const defaultSettings: Settings = {
   customMode: false,
+  imageMotion: true,
   childName: "",
   nameMode: "fixed",
   language: "sv",
@@ -139,6 +141,25 @@ export default function ParentPage() {
                   />
                   <span className="absolute inset-0 rounded-full bg-[#5a3e2b]/15 transition peer-checked:bg-[#f3c46c]" />
                   <span className="absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow transition peer-checked:translate-x-5" />
+                </span>
+              </label>
+              <label className="flex items-center justify-between rounded-[18px] border border-[#5a3e2b]/15 bg-white/80 px-4 py-3 text-sm text-[#5a3e2b]/80">
+                Mjuka bildrörelser
+                <span className="relative inline-flex h-7 w-12 items-center">
+                  <input
+                    type="checkbox"
+                    className="peer sr-only"
+                    checked={settings.imageMotion}
+                    onChange={(event) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        imageMotion: event.target.checked,
+                      }))
+                    }
+                    disabled={!settings.customMode}
+                  />
+                  <span className="absolute inset-0 rounded-full bg-[#5a3e2b]/15 transition peer-checked:bg-[#f3c46c] peer-disabled:opacity-50" />
+                  <span className="absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow transition peer-checked:translate-x-5 peer-disabled:opacity-50" />
                 </span>
               </label>
               <label className="flex flex-col gap-2 text-sm text-[#5a3e2b]/80">
