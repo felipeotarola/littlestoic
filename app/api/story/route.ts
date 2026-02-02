@@ -121,7 +121,7 @@ type LayoutBeat = {
   beat: number;
   layout_type: LayoutType;
   image_slot: ImageSlot | null;
-  text: string;
+  summary: string;
 };
 
 type LayoutPlan = {
@@ -130,8 +130,8 @@ type LayoutPlan = {
 };
 
 function extractPlanText(planResp: Awaited<ReturnType<typeof client.responses.create>>) {
-  if (planResp.output_text) return planResp.output_text;
-  if (planResp.output) {
+  if ('output_text' in planResp && planResp.output_text) return planResp.output_text;
+  if ('output' in planResp && planResp.output) {
     return planResp.output
       .map((o: any) =>
         o.content?.map((c: any) => (typeof c.text === "string" ? c.text : "")).join("")
@@ -161,6 +161,9 @@ export async function POST(request: Request) {
   const age = body.age ?? null;
   const pronoun = body.pronoun ?? null;
   const hometown = body.hometown ?? null;
+  const isAnimalCharacter =
+    character.toLowerCase().includes("djur") ||
+    character.toLowerCase().includes("animal");
 
   const durationLine =
     minutes === "3-5"
@@ -181,7 +184,7 @@ export async function POST(request: Request) {
   ].join(" ");
 
   const plannerUser = [
-    "Skapa en layoutplan och text för en saga.",
+    "Skapa en layoutplan för en saga.",
     `Tema: ${theme}.`,
     `Huvudperson: ${character}.`,
     `Plats: ${place}.`,
@@ -211,12 +214,11 @@ export async function POST(request: Request) {
     "- Minst 1 beat med no_image.",
     "",
     "Output-format (JSON):",
-    '{ "beats":[{ "beat":1, "layout_type":"...", "image_slot":"slot_1|null", "text":"..." }], "images":{ "slot_1":{ "prompt":"..." } } }',
+    '{ "beats":[{ "beat":1, "layout_type":"...", "image_slot":"slot_1|null", "summary":"..." }], "images":{ "slot_1":{ "prompt":"..." } } }',
     "",
-    "Text-regel:",
-    "- Om image_slot inte är null: inkludera exakt en placeholder i texten: [[IMG:<slot>:<layout_type>]]",
-    "- Exempel: [[IMG:slot_2:inline_right]]",
-    "- Ingen markdown, inga listor. Bara ren text i stycken.",
+    "Summary-regel:",
+    "- summary är 1–2 meningar som beskriver vad som händer i beatet.",
+    "- Ingen markdown, inga listor.",
   ].join("\n");
 
   const planResp = await client.responses.create({
@@ -237,6 +239,52 @@ export async function POST(request: Request) {
     return new Response("Failed to parse layout plan.", { status: 500 });
   }
 
+  const storySystem = [
+    "Du är en trygg, varm och fantasifull sagoberättare för barn 6–10 år.",
+    languageLine,
+    durationLine,
+    "Allt ska vara barnvänligt, lugnt och aldrig skrämmande.",
+    "Ingen våldsam konflikt. Alltid positiv upplösning.",
+    "Struktur: början – mitt – slut.",
+    "Ingen markdown, inga listor. Bara ren text i stycken.",
+    "Du måste inkludera placeholder-taggar exakt som angivet, på egen rad.",
+    "Ändra inte taggarna och lägg inte till extra taggar.",
+  ].join(" ");
+
+  const beatLines = plan.beats.map((beat) => {
+    const placeholder = beat.image_slot
+      ? `[[IMG:${beat.image_slot}:${beat.layout_type}]]`
+      : "NO_IMAGE";
+    return `Beat ${beat.beat}: ${beat.summary} | Placeholder: ${placeholder}`;
+  });
+
+  const storyUser = [
+    "Skriv en personlig saga baserad på följande val:",
+    `Tema: ${theme}.`,
+    `Huvudperson: ${character}.`,
+    `Plats: ${place}.`,
+    `Riktning: ${direction}.`,
+    childName ? `Barnets namn: ${childName}.` : "Barnets namn: ej angivet.",
+    `Namn-läge: ${nameMode}.`,
+    age ? `Ålder: ${age}.` : "Ålder: ej angivet.",
+    pronoun ? `Pronomen: ${pronoun}.` : "Pronomen: ej angivet.",
+    hometown ? `Hemstad: ${hometown}.` : "Hemstad: ej angivet.",
+    "",
+    "Följ beatsen i ordning och inkludera placeholder-taggarna exakt en gång där de passar.",
+    ...beatLines,
+  ].join("\n");
+
+  const storyStream = await client.responses.stream({
+    model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+    input: [
+      { role: "system", content: storySystem },
+      { role: "user", content: storyUser },
+    ],
+    temperature: 0.8,
+    max_output_tokens:
+      minutes === "3-5" ? 1400 : minutes === "8-10" ? 2600 : 2000,
+  });
+
   const encoder = new TextEncoder();
 
   const readable = new ReadableStream({
@@ -247,8 +295,20 @@ export async function POST(request: Request) {
         const imageTasks = usedSlots.map(async (slot) => {
           const prompt = plan.images?.[slot]?.prompt;
           if (!prompt) return;
+          const style = [
+            "Storybook painterly illustration, calm and detailed, safe for children.",
+            "Soft edges, dreamy light, warm pastel palette, gentle haze.",
+            "No text, no scary elements, no harsh contrast.",
+            "Consistent art style across all images.",
+            !isAnimalCharacter ? "No animals unless explicitly described." : "",
+            `Theme: ${theme}.`,
+            `Place: ${place}.`,
+            `Character: ${character}.`,
+          ]
+            .filter(Boolean)
+            .join(" ");
           const predictionUrl = await createReplicatePrediction(
-            prompt,
+            `${style} ${prompt}`,
             SLOT_CONFIG[slot].aspect_ratio
           );
           const imageUrl = await waitForReplicate(predictionUrl);
@@ -257,8 +317,10 @@ export async function POST(request: Request) {
           );
         });
 
-        for (const beat of plan.beats) {
-          controller.enqueue(encoder.encode(beat.text.trim() + "\n\n"));
+        for await (const event of storyStream) {
+          if (event.type === "response.output_text.delta") {
+            controller.enqueue(encoder.encode(event.delta));
+          }
         }
 
         await Promise.allSettled(imageTasks);
