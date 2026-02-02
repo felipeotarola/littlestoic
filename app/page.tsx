@@ -155,7 +155,7 @@ export default function Home() {
   const [storyText, setStoryText] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [storyError, setStoryError] = useState("");
-  const [storyImages, setStoryImages] = useState<string[]>([]);
+  const [storyImages, setStoryImages] = useState<Record<string, string>>({});
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
   const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
   const [selectedPlace, setSelectedPlace] = useState<string | null>(null);
@@ -211,6 +211,7 @@ export default function Home() {
         : isStep4
           ? "Välj riktning"
           : "Redo att börja";
+  const hasStoryAssets = storyText.length > 0 || Object.keys(storyImages).length > 0;
   const previewTitle = isStep1
     ? "En mjuk start"
     : isStep2
@@ -219,7 +220,7 @@ export default function Home() {
         ? "En värld tar form"
         : isStep4
           ? "Berättelsen får riktning"
-          : isGenerating || storyText || storyImages.length > 0
+          : isGenerating || hasStoryAssets
             ? "Sagan är redo"
             : "Sagan väntar";
   const previewCopy = isStep1
@@ -230,21 +231,135 @@ export default function Home() {
         ? "Världen formas av dina val."
         : isStep4
           ? "Berättelsen formas av dina val."
-          : isGenerating || storyText || storyImages.length > 0
+          : isGenerating || hasStoryAssets
             ? "En berättelse skapad tillsammans."
             : "Allt är på plats när du är redo.";
   const glowPulseClass = selectionMade || isStep4 || isStep5 ? "" : "pulse-glow";
   const glowOnceClass = pulseOnce ? "pulse-glow-once" : "";
   const glowPauseClass = isHoveringCard ? "pulse-paused" : "";
-  const storyParagraphs = storyText
-    .split(/\n\s*\n/)
-    .map((p) => p.trim())
-    .filter(Boolean);
+  const renderTextBlock = (text: string, keyPrefix: string) => {
+    const paragraphs = text
+      .split(/\n\s*\n/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    return (
+      <div className="flex flex-col gap-4">
+        {paragraphs.map((p, idx) => (
+          <p key={`${keyPrefix}-${idx}`}>{p}</p>
+        ))}
+      </div>
+    );
+  };
+
+  const renderStoryContent = () => {
+    if (!storyText) return null;
+    const tokenRegex = /\[\[IMG:(slot_\d+):([a-z_]+)\]\]/g;
+    const tokens: Array<
+      | { type: "text"; value: string }
+      | { type: "img"; slot: string; layout: string }
+    > = [];
+    let lastIndex = 0;
+    let match: RegExpExecArray | null = tokenRegex.exec(storyText);
+    while (match) {
+      if (match.index > lastIndex) {
+        tokens.push({ type: "text", value: storyText.slice(lastIndex, match.index) });
+      }
+      tokens.push({ type: "img", slot: match[1], layout: match[2] });
+      lastIndex = match.index + match[0].length;
+      match = tokenRegex.exec(storyText);
+    }
+    if (lastIndex < storyText.length) {
+      tokens.push({ type: "text", value: storyText.slice(lastIndex) });
+    }
+
+    const nodes: JSX.Element[] = [];
+    let i = 0;
+    while (i < tokens.length) {
+      const token = tokens[i];
+      if (token.type === "text") {
+        nodes.push(renderTextBlock(token.value, `text-${i}`));
+        i += 1;
+        continue;
+      }
+
+      const imageUrl = storyImages[token.slot];
+      const layout = token.layout;
+      const imageElement = (
+        <div
+          className={`relative overflow-hidden rounded-[22px] border border-white/70 bg-white/90 shadow-[0_12px_26px_rgba(90,62,43,0.12)] ${
+            layout === "cutaway" ? "max-w-xs" : "w-full"
+          }`}
+        >
+          {imageUrl ? (
+            <Image
+              src={imageUrl}
+              alt="Sagbilde"
+              width={layout === "cutaway" ? 600 : 1200}
+              height={layout === "cutaway" ? 600 : 800}
+              className="h-auto w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-64 w-full items-center justify-center bg-[#f7efe3] text-sm text-[#5a3e2b]/60">
+              Skapar bild...
+            </div>
+          )}
+        </div>
+      );
+
+      if (layout === "inline_left" || layout === "inline_right") {
+        const nextText =
+          i + 1 < tokens.length && tokens[i + 1].type === "text"
+            ? (tokens[i + 1] as { type: "text"; value: string }).value
+            : "";
+        nodes.push(
+          <div
+            key={`inline-${i}`}
+            className="flex flex-col gap-6 md:flex-row md:items-start"
+          >
+            <div
+              className={`md:w-2/5 ${layout === "inline_right" ? "md:order-2" : ""}`}
+            >
+              {imageElement}
+            </div>
+            <div className="md:w-3/5">
+              {renderTextBlock(nextText, `inline-text-${i}`)}
+            </div>
+          </div>
+        );
+        i += nextText ? 2 : 1;
+        continue;
+      }
+
+      if (layout === "background_soft") {
+        nodes.push(
+          <div key={`bg-${i}`} className="relative overflow-hidden rounded-[26px]">
+            <div className="absolute inset-0 opacity-60">{imageElement}</div>
+            <div className="relative rounded-[26px] bg-white/75 p-8 shadow-[0_10px_24px_rgba(90,62,43,0.12)]">
+              <p className="text-sm text-[#5a3e2b]/70">
+                En mjuk stund i berättelsen.
+              </p>
+            </div>
+          </div>
+        );
+        i += 1;
+        continue;
+      }
+
+      nodes.push(
+        <div key={`img-${i}`} className="flex justify-center">
+          {imageElement}
+        </div>
+      );
+      i += 1;
+    }
+
+    return <div className="flex flex-col gap-8">{nodes}</div>;
+  };
 
   const startStory = async () => {
     setStoryError("");
     setStoryText("");
-    setStoryImages([]);
+    setStoryImages({});
     streamBufferRef.current = "";
     setIsGenerating(true);
     try {
@@ -295,10 +410,10 @@ export default function Home() {
             }
 
             const payload = buffer.slice(markerIndex + marker.length, endIndex);
-            const parts = payload.split(":");
-            const url = parts.length > 1 ? parts.slice(1).join(":") : payload;
-            if (url) {
-              setStoryImages((prev) => [...prev, url]);
+            const [slot, ...rest] = payload.split(":");
+            const url = rest.join(":");
+            if (slot && url) {
+              setStoryImages((prev) => ({ ...prev, [slot]: url }));
             }
 
             buffer = buffer.slice(endIndex + 2);
@@ -495,58 +610,9 @@ export default function Home() {
                     Sagan skapas...
                   </div>
                 )}
-                {(storyText || storyImages.length > 0) && (
+                {(storyText || Object.keys(storyImages).length > 0) && (
                   <div className="w-full max-w-3xl rounded-[28px] border border-white/70 bg-white/85 p-8 text-[18px] leading-8 text-[#5a3e2b] shadow-[0_12px_26px_rgba(90,62,43,0.12)]">
-                    <div className="flex flex-col gap-6">
-                      {storyImages[0] && (
-                        <div className="overflow-hidden rounded-[22px] border border-white/70 bg-white/90 shadow-[0_12px_26px_rgba(90,62,43,0.12)]">
-                          <Image
-                            src={storyImages[0]}
-                            alt="Sagbilde 1"
-                            width={1200}
-                            height={800}
-                            className="h-auto w-full object-cover"
-                          />
-                        </div>
-                      )}
-                      <div className="flex flex-col gap-4">
-                        {storyParagraphs.slice(0, 4).map((p, idx) => (
-                          <p key={`p1-${idx}`}>{p}</p>
-                        ))}
-                      </div>
-                      {storyImages[1] && (
-                        <div className="overflow-hidden rounded-[22px] border border-white/70 bg-white/90 shadow-[0_12px_26px_rgba(90,62,43,0.12)]">
-                          <Image
-                            src={storyImages[1]}
-                            alt="Sagbilde 2"
-                            width={1200}
-                            height={800}
-                            className="h-auto w-full object-cover"
-                          />
-                        </div>
-                      )}
-                      <div className="flex flex-col gap-4">
-                        {storyParagraphs.slice(4, 9).map((p, idx) => (
-                          <p key={`p2-${idx}`}>{p}</p>
-                        ))}
-                      </div>
-                      {storyImages[2] && (
-                        <div className="overflow-hidden rounded-[22px] border border-white/70 bg-white/90 shadow-[0_12px_26px_rgba(90,62,43,0.12)]">
-                          <Image
-                            src={storyImages[2]}
-                            alt="Sagbilde 3"
-                            width={1200}
-                            height={800}
-                            className="h-auto w-full object-cover"
-                          />
-                        </div>
-                      )}
-                      <div className="flex flex-col gap-4">
-                        {storyParagraphs.slice(9).map((p, idx) => (
-                          <p key={`p3-${idx}`}>{p}</p>
-                        ))}
-                      </div>
-                    </div>
+                    {renderStoryContent()}
                   </div>
                 )}
                 {storyError && (
@@ -560,7 +626,7 @@ export default function Home() {
                       setStoryText("");
                       setStoryError("");
                       setIsGenerating(false);
-                      setStoryImages([]);
+                      setStoryImages({});
                     }}
                   >
                     Ändra val

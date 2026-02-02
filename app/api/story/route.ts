@@ -10,7 +10,10 @@ const REPLICATE_API = "https://api.replicate.com/v1";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function createReplicatePrediction(prompt: string) {
+async function createReplicatePrediction(
+  prompt: string,
+  aspect_ratio: "3:2" | "1:1"
+) {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) {
     throw new Error("Missing REPLICATE_API_TOKEN.");
@@ -27,7 +30,7 @@ async function createReplicatePrediction(prompt: string) {
       body: JSON.stringify({
         input: {
           prompt,
-          aspect_ratio: "3:2",
+          aspect_ratio,
           output_format: "png",
           guidance_scale: 3,
           num_inference_steps: 4,
@@ -89,7 +92,54 @@ type StoryRequest = {
   direction?: string | null;
   language?: string;
   minutes?: string;
+  name?: string | null;
+  nameMode?: string | null;
+  age?: string | null;
+  pronoun?: string | null;
+  hometown?: string | null;
+  allowedThemes?: string[] | null;
 };
+
+const SLOT_CONFIG = {
+  slot_1: { aspect_ratio: "3:2" as const },
+  slot_2: { aspect_ratio: "1:1" as const },
+  slot_3: { aspect_ratio: "3:2" as const },
+  slot_4: { aspect_ratio: "1:1" as const },
+};
+
+type ImageSlot = keyof typeof SLOT_CONFIG;
+
+type LayoutType =
+  | "hero_wide"
+  | "inline_left"
+  | "inline_right"
+  | "background_soft"
+  | "cutaway"
+  | "no_image";
+
+type LayoutBeat = {
+  beat: number;
+  layout_type: LayoutType;
+  image_slot: ImageSlot | null;
+  text: string;
+};
+
+type LayoutPlan = {
+  beats: LayoutBeat[];
+  images: Partial<Record<ImageSlot, { prompt: string }>>;
+};
+
+function extractPlanText(planResp: Awaited<ReturnType<typeof client.responses.create>>) {
+  if (planResp.output_text) return planResp.output_text;
+  if (planResp.output) {
+    return planResp.output
+      .map((o: any) =>
+        o.content?.map((c: any) => (typeof c.text === "string" ? c.text : "")).join("")
+      )
+      .join("");
+  }
+  return "";
+}
 
 export async function POST(request: Request) {
   if (!process.env.OPENAI_API_KEY) {
@@ -104,79 +154,113 @@ export async function POST(request: Request) {
   const character = body.character ?? "En huvudperson";
   const place = body.place ?? "En plats";
   const direction = body.direction ?? "En riktning";
+  const language = body.language ?? "sv";
+  const minutes = body.minutes ?? "5-8";
+  const childName = body.name ?? null;
+  const nameMode = body.nameMode ?? "fixed";
+  const age = body.age ?? null;
+  const pronoun = body.pronoun ?? null;
+  const hometown = body.hometown ?? null;
 
-  const system = [
+  const durationLine =
+    minutes === "3-5"
+      ? "Sagan ska vara 3–5 minuter lång att läsa (cirka 500–700 ord)."
+      : minutes === "8-10"
+        ? "Sagan ska vara 8–10 minuter lång att läsa (cirka 1300–1600 ord)."
+        : "Sagan ska vara 5–8 minuter lång att läsa (cirka 900–1200 ord).";
+
+  const languageLine =
+    language === "en"
+      ? "Write in clear, gentle English."
+      : "Skriv på lättläst svenska med korta meningar och tydliga stycken.";
+
+  const plannerSystem = [
     "Du är en trygg, varm och fantasifull sagoberättare för barn 6–10 år.",
-    "Skriv på lättläst svenska med korta meningar och tydliga stycken.",
-    "Sagan ska vara 5–8 minuter lång att läsa (cirka 900–1200 ord).",
-    "Allt ska vara barnvänligt, lugnt och aldrig skrämmande.",
-    "Ingen våldsam konflikt. Alltid positiv upplösning.",
-    "Struktur: början – mitt – slut.",
-    "Ingen markdown, inga listor. Bara ren text i stycken.",
+    "Du planerar en dynamisk bok/blog-layout med inbäddade bilder.",
+    "Du måste svara ENDAST med giltig JSON. Ingen annan text.",
   ].join(" ");
 
-  const user = [
-    "Skapa en personlig saga baserad på följande val:",
+  const plannerUser = [
+    "Skapa en layoutplan och text för en saga.",
     `Tema: ${theme}.`,
     `Huvudperson: ${character}.`,
     `Plats: ${place}.`,
     `Riktning: ${direction}.`,
-    "Anpassa tonen till barn, och låt sagan kännas trygg och magisk.",
-  ].join(" ");
+    childName ? `Barnets namn: ${childName}.` : "Barnets namn: ej angivet.",
+    `Namn-läge: ${nameMode}.`,
+    age ? `Ålder: ${age}.` : "Ålder: ej angivet.",
+    pronoun ? `Pronomen: ${pronoun}.` : "Pronomen: ej angivet.",
+    hometown ? `Hemstad: ${hometown}.` : "Hemstad: ej angivet.",
+    "",
+    "Regler:",
+    durationLine,
+    languageLine,
+    "Allt ska vara barnvänligt, lugnt och aldrig skrämmande.",
+    "Ingen våldsam konflikt. Alltid positiv upplösning.",
+    "Struktur: början – mitt – slut.",
+    "",
+    "Bildslots:",
+    "- slot_1 = wide (3:2) etablerande scen",
+    "- slot_2 = square (1:1) karaktär/objekt, kan ligga inline med text",
+    "- slot_3 = wide (3:2) kan användas som background_soft",
+    "- slot_4 = square (1:1) detalj/cutaway",
+    "",
+    "Krav på variation:",
+    "- Minst 2 beats med inline_left eller inline_right.",
+    "- Minst 1 beat med background_soft.",
+    "- Minst 1 beat med no_image.",
+    "",
+    "Output-format (JSON):",
+    '{ "beats":[{ "beat":1, "layout_type":"...", "image_slot":"slot_1|null", "text":"..." }], "images":{ "slot_1":{ "prompt":"..." } } }',
+    "",
+    "Text-regel:",
+    "- Om image_slot inte är null: inkludera exakt en placeholder i texten: [[IMG:<slot>:<layout_type>]]",
+    "- Exempel: [[IMG:slot_2:inline_right]]",
+    "- Ingen markdown, inga listor. Bara ren text i stycken.",
+  ].join("\n");
 
-  const imagePrompts = [
-    [
-      "Storybook painterly illustration, calm and detailed, safe for children,",
-      "soft edges, dreamy light, no text, no scary elements.",
-      `World atmosphere: ${place}.`,
-      `Emotion: ${theme}.`,
-      `Character as soft silhouette: ${character}.`,
-      "Wide landscape, gentle haze, 3:2.",
-    ].join(" "),
-    [
-      "Storybook painterly illustration, calm and detailed, safe for children,",
-      "soft edges, dreamy light, no text, no scary elements.",
-      `Direction cue: ${direction}.`,
-      `Place: ${place}.`,
-      "Subtle warm glow, 3:2.",
-    ].join(" "),
-    [
-      "Storybook painterly illustration, calm and detailed, safe for children,",
-      "soft edges, dreamy light, no text, no scary elements.",
-      "A gentle concluding moment in the same world.",
-      `Place: ${place}.`,
-      "Evening light, soft sparkles, 3:2.",
-    ].join(" "),
-  ];
-
-  const stream = await client.responses.stream({
+  const planResp = await client.responses.create({
     model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
     input: [
-      { role: "system", content: system },
-      { role: "user", content: user },
+      { role: "system", content: plannerSystem },
+      { role: "user", content: plannerUser },
     ],
-    temperature: 0.8,
+    temperature: 0.7,
     max_output_tokens: 1800,
   });
+
+  const planText = extractPlanText(planResp);
+  let plan: LayoutPlan;
+  try {
+    plan = JSON.parse(planText) as LayoutPlan;
+  } catch {
+    return new Response("Failed to parse layout plan.", { status: 500 });
+  }
 
   const encoder = new TextEncoder();
 
   const readable = new ReadableStream({
     async start(controller) {
       try {
-        const imageTasks = imagePrompts.map(async (prompt, index) => {
-          const predictionUrl = await createReplicatePrediction(prompt);
+        const usedSlots = Object.keys(plan.images || {}) as ImageSlot[];
+
+        const imageTasks = usedSlots.map(async (slot) => {
+          const prompt = plan.images?.[slot]?.prompt;
+          if (!prompt) return;
+          const predictionUrl = await createReplicatePrediction(
+            prompt,
+            SLOT_CONFIG[slot].aspect_ratio
+          );
           const imageUrl = await waitForReplicate(predictionUrl);
           controller.enqueue(
-            encoder.encode(`\n[[IMAGE:${index + 1}:${imageUrl}]]\n`)
+            encoder.encode(`\n[[IMAGE:${slot}:${imageUrl}]]\n`)
           );
         });
 
-        for await (const event of stream) {
-          if (event.type === "response.output_text.delta") {
-            controller.enqueue(encoder.encode(event.delta));
-          }
+        for (const beat of plan.beats) {
+          controller.enqueue(encoder.encode(beat.text.trim() + "\n\n"));
         }
+
         await Promise.allSettled(imageTasks);
         controller.close();
       } catch (error) {
